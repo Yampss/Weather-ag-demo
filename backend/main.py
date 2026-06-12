@@ -9,8 +9,8 @@ from bedrock_agent import run_agent
 
 app = FastAPI(
     title="Weather AI Agent",
-    description="AWS Bedrock-powered weather chatbot with real tool calling",
-    version="1.0.0",
+    description="AWS Bedrock + LangChain weather chatbot with tool calling",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -23,7 +23,7 @@ app.add_middleware(
 
 sessions: dict[str, list[dict]] = {}
 
-FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
+FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
 
 
 class ChatRequest(BaseModel):
@@ -94,4 +94,9 @@ async def list_sessions():
     return {sid: len(msgs) for sid, msgs in sessions.items()}
 
 
-app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+@app.get("/")
+async def serve_index():
+    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+
+
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")

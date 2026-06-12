@@ -4,3 +4,6 @@ boto3
 httpx
 python-dotenv
 pydantic
+langchain
+langchain-aws
+langchain-core
