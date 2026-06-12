@@ -4,9 +4,8 @@ from dotenv import load_dotenv
 
 from langchain_aws import ChatBedrockConverse
 from langchain_core.tools import StructuredTool
-from langchain_core.messages import HumanMessage, AIMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
 from weather_tools import get_current_weather as _get_current_weather
@@ -47,7 +46,7 @@ tools = [
         coroutine=_forecast_fn,
         name="get_weather_forecast",
         description=(
-            "Retrieves a daily weather forecast (1–7 days) for a city. "
+            "Retrieves a daily weather forecast (1-7 days) for a city. "
             "Use for future weather, upcoming days, weekly forecast, or event planning questions."
         ),
         args_schema=ForecastInput,
@@ -76,46 +75,58 @@ Format your final response in a friendly, readable way. Include:
 
 Keep responses concise but complete."""
 
-prompt = ChatPromptTemplate.from_messages([
-    ("system", SYSTEM_PROMPT),
-    MessagesPlaceholder("chat_history"),
-    ("human", "{input}"),
-    MessagesPlaceholder("agent_scratchpad"),
-])
-
-agent = create_tool_calling_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, return_intermediate_steps=True)
+graph = create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 
 
 async def run_agent(user_message: str, conversation_history: list[dict]) -> dict[str, Any]:
-    lc_history = []
+    messages = []
     for msg in conversation_history:
         if msg.get("role") == "human":
-            lc_history.append(HumanMessage(content=msg["content"]))
+            messages.append(HumanMessage(content=msg["content"]))
         elif msg.get("role") == "assistant":
-            lc_history.append(AIMessage(content=msg["content"]))
+            messages.append(AIMessage(content=msg["content"]))
+    messages.append(HumanMessage(content=user_message))
 
-    result = await agent_executor.ainvoke({
-        "input": user_message,
-        "chat_history": lc_history,
-    })
+    result = await graph.ainvoke({"messages": messages})
 
-    tool_calls = []
-    for action, observation in result.get("intermediate_steps", []):
-        tool_calls.append({
-            "tool": action.tool,
-            "input": action.tool_input if isinstance(action.tool_input, dict) else {"input": action.tool_input},
-            "result": observation,
-            "error": None,
-        })
+    pending: dict[str, dict] = {}
+    tool_calls_log: list[dict] = []
+
+    for msg in result["messages"]:
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            for tc in msg.tool_calls:
+                pending[tc["id"]] = {
+                    "tool": tc["name"],
+                    "input": tc["args"],
+                    "result": None,
+                    "error": None,
+                }
+        elif isinstance(msg, ToolMessage):
+            if msg.tool_call_id in pending:
+                entry = pending.pop(msg.tool_call_id)
+                entry["result"] = msg.content
+                tool_calls_log.append(entry)
+
+    final_text = ""
+    for msg in reversed(result["messages"]):
+        if isinstance(msg, AIMessage) and not msg.tool_calls:
+            content = msg.content
+            if isinstance(content, str):
+                final_text = content
+            elif isinstance(content, list):
+                final_text = " ".join(
+                    block.get("text", "") for block in content
+                    if isinstance(block, dict) and "text" in block
+                )
+            break
 
     updated_history = conversation_history + [
         {"role": "human", "content": user_message},
-        {"role": "assistant", "content": result["output"]},
+        {"role": "assistant", "content": final_text},
     ]
 
     return {
-        "text": result["output"],
-        "tool_calls": tool_calls,
+        "text": final_text,
+        "tool_calls": tool_calls_log,
         "updated_history": updated_history,
     }
