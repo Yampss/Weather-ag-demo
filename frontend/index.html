@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WeatherAI — AWS Bedrock Agent</title>
+  <meta name="description" content="Real-time weather chatbot powered by AWS Bedrock Nova with live tool-calling. Ask anything about the weather worldwide." />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- Animated aurora background -->
+<div class="aurora">
+  <div class="aurora-orb"></div>
+  <div class="aurora-orb"></div>
+  <div class="aurora-orb"></div>
+</div>
+
+<!-- Main app shell -->
+<div class="app-shell">
+
+  <!-- ════ Sidebar ════ -->
+  <aside class="sidebar" role="navigation" aria-label="Quick actions">
+    <div class="sidebar-logo">
+      <div class="logo-icon">🌦️</div>
+      <div>
+        <div class="logo-text">WeatherAI</div>
+        <div class="logo-sub">Powered by AWS Bedrock</div>
+      </div>
+    </div>
+
+    <div class="sidebar-section-title">Quick Questions</div>
+
+    <button class="quick-btn" onclick="sendQuickMessage(this)" data-msg="What's the weather like in London right now?">
+      <span class="qb-icon">🌡️</span>
+      <span class="qb-text">Current weather in London</span>
+    </button>
+    <button class="quick-btn" onclick="sendQuickMessage(this)" data-msg="Give me a 7-day forecast for Tokyo">
+      <span class="qb-icon">📅</span>
+      <span class="qb-text">7-day forecast for Tokyo</span>
+    </button>
+    <button class="quick-btn" onclick="sendQuickMessage(this)" data-msg="Compare the weather in New York and Los Angeles today">
+      <span class="qb-icon">🆚</span>
+      <span class="qb-text">Compare NY vs LA weather</span>
+    </button>
+    <button class="quick-btn" onclick="sendQuickMessage(this)" data-msg="Is it raining in Mumbai right now? Should I carry an umbrella?">
+      <span class="qb-icon">☂️</span>
+      <span class="qb-text">Rain check for Mumbai</span>
+    </button>
+    <button class="quick-btn" onclick="sendQuickMessage(this)" data-msg="What's the UV index in Sydney today and what sun protection do I need?">
+      <span class="qb-icon">☀️</span>
+      <span class="qb-text">UV index in Sydney</span>
+    </button>
+    <button class="quick-btn" onclick="sendQuickMessage(this)" data-msg="Plan my week in Paris — give me the full 7-day weather outlook">
+      <span class="qb-icon">🗼</span>
+      <span class="qb-text">Week plan for Paris</span>
+    </button>
+    <button class="quick-btn" onclick="sendQuickMessage(this)" data-msg="What are the best weather conditions globally right now? Check London, Dubai, Singapore, and Sydney.">
+      <span class="qb-icon">🌍</span>
+      <span class="qb-text">Global weather snapshot</span>
+    </button>
+
+    <div class="sidebar-divider"></div>
+
+    <div class="sidebar-section-title">Tools Available</div>
+    <button class="quick-btn" style="cursor:default;">
+      <span class="qb-icon">⚡</span>
+      <span class="qb-text" style="font-size:12px;">get_current_weather</span>
+    </button>
+    <button class="quick-btn" style="cursor:default;">
+      <span class="qb-icon">⚡</span>
+      <span class="qb-text" style="font-size:12px;">get_weather_forecast</span>
+    </button>
+
+    <div class="sidebar-divider"></div>
+
+    <button id="new-chat-btn" class="new-chat-btn" onclick="clearChat()">
+      ✦ New Conversation
+    </button>
+  </aside>
+
+  <!-- ════ Main Chat ════ -->
+  <main class="chat-main">
+
+    <!-- Header -->
+    <header class="chat-header">
+      <div class="header-status">
+        <div class="status-dot" id="status-dot"></div>
+        <span class="status-label" id="status-label">Agent Ready</span>
+      </div>
+      <div class="header-title">WeatherAI Agent</div>
+      <div class="header-actions">
+        <button class="icon-btn" title="Clear chat" onclick="clearChat()">🗑️</button>
+        <button class="icon-btn" title="API docs" onclick="window.open('http://localhost:8000/docs','_blank')">📋</button>
+        <button class="icon-btn" id="settings-btn" title="Settings" onclick="toggleSettings()">⚙️</button>
+      </div>
+    </header>
+
+    <!-- Settings panel (hidden by default) -->
+    <div id="settings-panel" style="display:none; padding:12px 28px; background:rgba(0,0,0,0.3); border-bottom:1px solid var(--glass-border); font-size:13px; gap:16px; align-items:center; flex-wrap:wrap;">
+      <label style="color:var(--text-secondary);">Backend URL:
+        <input id="backend-url" type="text" id="backend-url-input"
+          style="margin-left:8px; padding:4px 10px; background:rgba(255,255,255,0.05); border:1px solid var(--glass-border); border-radius:6px; color:var(--text-primary); font-size:13px; width:220px;" />
+      </label>
+      <label style="color:var(--text-secondary);">Session ID:
+        <input id="session-id-input" type="text" value="default"
+          style="margin-left:8px; padding:4px 10px; background:rgba(255,255,255,0.05); border:1px solid var(--glass-border); border-radius:6px; color:var(--text-primary); font-size:13px; width:120px;" />
+      </label>
+      <button onclick="saveSettings()" style="padding:4px 14px; background:rgba(79,142,247,0.2); border:1px solid rgba(79,142,247,0.4); border-radius:6px; color:var(--accent-blue); cursor:pointer; font-size:13px;">Save</button>
+    </div>
+
+    <!-- Messages -->
+    <div class="messages-wrap" id="messages-wrap" role="log" aria-live="polite" aria-label="Chat messages">
+      <!-- Welcome screen -->
+      <div class="welcome-screen" id="welcome-screen">
+        <div class="welcome-icon">🌦️</div>
+        <h1 class="welcome-title">Ask me anything about weather</h1>
+        <p class="welcome-sub">
+          I'm powered by <strong>AWS Bedrock (Nova)</strong> and use real tool-calling to fetch 
+          live weather data from anywhere in the world. Ask about current conditions, 
+          forecasts, or compare cities!
+        </p>
+        <div class="welcome-chips">
+          <button class="chip" onclick="sendChip(this)">🌡️ Current weather in Paris</button>
+          <button class="chip" onclick="sendChip(this)">📅 5-day forecast for Dubai</button>
+          <button class="chip" onclick="sendChip(this)">🌧️ Will it rain in Berlin this week?</button>
+          <button class="chip" onclick="sendChip(this)">❄️ Is it cold in Moscow right now?</button>
+          <button class="chip" onclick="sendChip(this)">🌬️ Wind conditions in Chicago?</button>
+          <button class="chip" onclick="sendChip(this)">🌊 Weather in Bali, Indonesia</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input bar -->
+    <div class="input-area">
+      <div class="input-wrap">
+        <textarea
+          id="user-input"
+          placeholder="Ask about weather anywhere in the world…"
+          rows="1"
+          aria-label="Chat input"
+          onkeydown="handleKeyDown(event)"
+          oninput="autoResize(this)"
+        ></textarea>
+        <button class="send-btn" id="send-btn" onclick="sendMessage()" title="Send message" aria-label="Send">
+          ➤
+        </button>
+      </div>
+      <div class="input-hint">
+        <span>Press <kbd style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-size:10px;">Enter</kbd> to send · <kbd style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-size:10px;">Shift+Enter</kbd> for newline</span>
+        <span id="session-display" style="color:var(--text-muted);">Session: default</span>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
