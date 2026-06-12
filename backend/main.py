@@ -1,10 +1,8 @@
-"""
-main.py
-FastAPI application — entry point for the Weather AI Agent backend.
-"""
-
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Any
 from bedrock_agent import run_agent
@@ -15,7 +13,6 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Allow the frontend (served from file:// or localhost) to call this API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,13 +21,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory conversation store keyed by session_id
 sessions: dict[str, list[dict]] = {}
 
+FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 
-# ---------------------------------------------------------------------------
-# Request / Response models
-# ---------------------------------------------------------------------------
 
 class ChatRequest(BaseModel):
     message: str
@@ -55,22 +49,13 @@ class ClearResponse(BaseModel):
     session_id: str
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
     return {"status": "ok", "service": "Weather AI Agent"}
 
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """
-    Send a message to the Weather AI Agent.
-    The agent will call weather tools as needed and return a response.
-    """
     session_id = request.session_id
     history = sessions.get(session_id, [])
 
@@ -79,7 +64,6 @@ async def chat(request: ChatRequest):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Agent error: {str(exc)}")
 
-    # Update session history (keep last 20 messages to avoid token limits)
     sessions[session_id] = result["updated_history"][-20:]
 
     tool_calls = [
@@ -101,15 +85,13 @@ async def chat(request: ChatRequest):
 
 @app.delete("/chat/{session_id}", response_model=ClearResponse)
 async def clear_session(session_id: str):
-    """Clear conversation history for a session."""
     sessions.pop(session_id, None)
     return ClearResponse(message="Session cleared", session_id=session_id)
 
 
 @app.get("/sessions")
 async def list_sessions():
-    """List active sessions and their message counts."""
-    return {
-        sid: len(msgs)
-        for sid, msgs in sessions.items()
-    }
+    return {sid: len(msgs) for sid, msgs in sessions.items()}
+
+
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
